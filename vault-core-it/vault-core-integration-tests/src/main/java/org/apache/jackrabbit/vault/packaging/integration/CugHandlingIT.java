@@ -59,6 +59,11 @@ public final class CugHandlingIT extends IntegrationTestBase {
      */
     private static final String CUG_PACKAGE_2 = "/test-packages/cug-test-2.zip";
 
+    /**
+     * contains the same node as CUG_PACKAGE_1 but without the cugPolicy
+     */
+    private static final String CUG_PACKAGE_REMOVAL = "/test-packages/cug-test-removal.zip";
+
     
     @BeforeClass
     public static void initRepository() throws RepositoryException, IOException {
@@ -152,6 +157,59 @@ public final class CugHandlingIT extends IntegrationTestBase {
             Node cugNode = nodeWithCug.getNode("rep:cugPolicy");
             assertProperty(cugNode, "jcr:primaryType", "rep:CugPolicy");
             assertProperty(cugNode, "rep:principalNames", asSet("principal-1", "principal-2", "principal-3"));
+        }
+    }
+
+    /**
+     * Tests the issue where a CUG is deployed via content package, then removed from source system,
+     * and the next package deployment does not remove the CUG from the destination system.
+     * 
+     * This test reproduces the problem where:
+     * 1. First package contains a node with a CUG policy
+     * 2. Second package contains the same node but without the CUG policy
+     * 3. After deploying the second package with OVERWRITE, the CUG should be removed
+     * 
+     * Expected behavior: The CUG policy should be removed from the destination
+     * Current (buggy) behavior: The CUG policy remains on the destination system
+     */
+    @Test
+    public void testCugRemovalWhenAbsentInPackage() throws Exception {
+        // First, deploy package with CUG policy
+        ImportOptions opts1 = new ImportOptions();
+        opts1.setCugHandling(AccessControlHandling.MERGE_PRESERVE);
+        try (VaultPackage vp1 = extractVaultPackage(CUG_PACKAGE_1, opts1)) {
+            Node testRoot = admin.getNode(TEST_ROOT);
+            assertNodeExists(testRoot, "node_with_cug");
+            Node nodeWithCug = testRoot.getNode("node_with_cug");
+            assertProperty(nodeWithCug, "jcr:mixinTypes", asSet("rep:CugMixin"));
+            assertNodeExists(nodeWithCug, "rep:cugPolicy");
+            Node cugNode = nodeWithCug.getNode("rep:cugPolicy");
+            assertProperty(cugNode, "jcr:primaryType", "rep:CugPolicy");
+            assertProperty(cugNode, "rep:principalNames", asSet("principal-1", "principal-2"));
+        }
+        
+        // Now deploy package without CUG policy (simulating removal in source system)
+        // With MERGE_PRESERVE cugHandling, the CUG should be removed but bug causes it to remain
+        ImportOptions opts2 = new ImportOptions();
+        opts2.setCugHandling(AccessControlHandling.MERGE_PRESERVE);
+        try (VaultPackage vp2 = extractVaultPackage(CUG_PACKAGE_REMOVAL, opts2)) {
+            Node testRoot = admin.getNode(TEST_ROOT);
+            assertNodeExists(testRoot, "node_with_cug");
+            Node nodeWithCug = testRoot.getNode("node_with_cug");
+            
+            // EXPECTED: CUG policy should be removed
+            // ACTUAL (BUG): CUG policy still exists
+            assertNodeMissing(nodeWithCug, "rep:cugPolicy");
+            
+            // The mixin should also be removed when there's no CUG policy
+            if (nodeWithCug.hasProperty("jcr:mixinTypes")) {
+                Set<String> mixins = new HashSet<String>();
+                for (Value v: nodeWithCug.getProperty("jcr:mixinTypes").getValues()) {
+                    mixins.add(v.getString());
+                }
+                assertFalse("rep:CugMixin should be removed when CUG policy is absent", 
+                           mixins.contains("rep:CugMixin"));
+            }
         }
     }
 
