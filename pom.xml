@@ -54,6 +54,7 @@
 
     <properties>
         <project.build.outputTimestamp>2022-02-26T10:24:12Z</project.build.outputTimestamp>
+        <sonar.organization>cschneider</sonar.organization>
     </properties>
 
     <distributionManagement>
