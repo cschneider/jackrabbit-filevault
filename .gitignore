@@ -10,3 +10,4 @@ console.properties
 bin/
 derby.log
 .mvn
+.flattened-pom.xml
